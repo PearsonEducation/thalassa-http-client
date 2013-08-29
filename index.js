@@ -12,7 +12,6 @@ var Client = module.exports = function (opts) {
 
   this.log = (typeof opts.log === 'function') ? opts.log : function (){};
 
-  this.PORT         = opts.apiport || 5001;
   this.APIPORT      = opts.apiport || 10000;
   this.HOST         = opts.host || '127.0.0.1';
   this.UPDATE_FREQ  = opts.updateFreq || 5000;
@@ -23,8 +22,6 @@ var Client = module.exports = function (opts) {
   this.intents = [];
   this.registrations = [];
   this.pending = {};
-
-  this.socket = null;
 
 };
 
