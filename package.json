@@ -23,6 +23,7 @@
   "dependencies": {
     "ip": "~0.1.0",
     "request": "~2.27.0",
-    "optimist": "~0.6.0"
+    "optimist": "~0.6.0",
+    "thalassa-registrations": "git+ssh://git@github.com:PearsonEducation/thalassa-registrations.git"
   }
 }
