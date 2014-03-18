@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 var util = require('util')
-  , Thalassa = require('..')
+  , ThalassaClient = require('..')
   , optimist = require('optimist')
             .options({
               host: {
@@ -50,7 +50,7 @@ if (argv.h) {
 
 var log = argv.log = require('../lib/defaultLogger')( (argv.debug == true) ? 'debug' : 'error' );
 
-var client = new Thalassa.Client(argv);
+var client = new ThalassaClient(argv);
 
 // TODO validate format of `register` option
 argv.register.split(',').forEach(function (nvp) {
