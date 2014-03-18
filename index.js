@@ -1,4 +1,5 @@
-var os = require('os')
+var axon = require('axon')
+  , os = require('os')
   , util = require('util')
   , ip = require('ip')
   , request = require('request')
@@ -6,30 +7,53 @@ var os = require('os')
   , EventEmitter = require('events').EventEmitter
   ;
 
+
+/**
+ * `Client` constructor
+ * @constructor
+ *
+ * @param {number} [opts.port=5001] - Port number of axon socket port
+ * @param {number} [opts.apiport=9000] - Port number of Thalassa HTTP API
+ * @param {String} [opts.host=127.0.0.1] - Thalassa host
+ * @param {number} [opts.updateFreq=20000] - How often to check into registrations to Thalassa server
+ * @param {number} [opts.updateTimeout=2500] - How long to wait for a registrion request to respond
+ * @param {String} [opts.mode=http]
+ */
+
 var Client = module.exports = function (opts) {
   if (typeof opts !== 'object') opts = {};
-  EventEmitter.call(this);
-
   this.log = (typeof opts.log === 'function') ? opts.log : function (){};
 
-  this.APIPORT      = opts.apiport || 10000;
-  this.HOST         = opts.host || '127.0.0.1';
-  this.UPDATE_FREQ  = opts.updateFreq || 5000;
-  this.MODE         = opts.mode || 'http';
-  this.MY_IP        = ip.address();
+  EventEmitter.call(this);
+
+  this.APIPORT        = opts.apiport || 9000;
+  this.PORT           = opts.port || 5001;
+  this.HOST           = opts.host || '127.0.0.1';
+  this.UPDATE_FREQ    = opts.updateFreq || 20000;
+  this.TIMEOUT        = opts.updateTimeout || 2500;
+  this.SEC_TO_EXPIRE  = opts.secsToExpire || 60;
+  this.MODE           = opts.mode || 'http';
+  this.MY_IP          = ip.address();
 
   this.isOn = false;
   this.intents = [];
   this.registrations = [];
   this.pending = {};
 
+  this.socket = null;
 };
 
 util.inherits(Client, EventEmitter);
 
-//
-// 
-//
+/**
+ * Create a new registration
+ *
+ * @param {String} name - Name of the service (preferably require('./package.json').name)
+ * @param {String} version - Version of the service (preferably require('./package.json').version)
+ * @param {String} port - Port this registration is bound to that clients can call
+ * @param {Object} meta - Any additional meta data (key, value) to include
+ */
+
 Client.prototype.register = function(name, version, port, meta) {
   var self = this;
   var reg = {
@@ -40,7 +64,13 @@ Client.prototype.register = function(name, version, port, meta) {
     meta: meta || {}
   };
 
-  if (!reg.meta.hostname) reg.meta.hostname = reg.host;
+  if (!reg.meta.hostname) {
+    reg.meta.hostname = reg.host;
+  }
+
+  if (!reg.meta.secondsToExpire) {
+    reg.meta.secondsToExpire = this.SEC_TO_EXPIRE;
+  }
 
   reg.meta.hostname = os.hostname();
   reg.meta.pid = process.pid;
@@ -54,12 +84,21 @@ Client.prototype.register = function(name, version, port, meta) {
   }
 };
 
+/**
+ * Unregister a previously registered registration
+ *
+ * @param {String} name - Name of the service (preferably require('./package.json').name)
+ * @param {String} version - Version of the service (preferably require('./package.json').version)
+ * @param {String} port - Port this registration is bound to that clients can call
+ */
+
 Client.prototype.unregister = function(name, version, port) {
   var self = this;
+  var host = self.MY_IP;
   var reg = registrations.create({
     name: name,
     version: version,
-    host: self.MY_IP,
+    host: host,
     port: port,
   });
 
@@ -69,7 +108,43 @@ Client.prototype.unregister = function(name, version, port) {
   self.intents = self.intents.filter(function (intent) {
     return reg.id !== intent.id;
   });
+
+  //
+  // explicitely delete the registration so the offline notifications happen immediately
+  //
+  self.del(name, version, host, port);
 };
+
+
+/**
+ * Explicitly delete a registration
+ *
+ * @param {String} name - Name of the service
+ * @param {String} version - Version of the service
+ * @param {String} port - Port of the registration
+ * @param {String} host - Host (ip) of the registration
+ */
+Client.prototype.del = function (name, version, host, port, cb) {
+  var self = this;
+  var uri = util.format('http://%s:%s/registrations/%s/%s/%s/%s', self.HOST, self.APIPORT, name, version, host, port);
+  request({
+    uri: uri,
+    json: true,
+    method: 'DELETE'
+  },
+  function (error, response, body) {
+    if (error) self.log('error', 'Thalassa:Client.del', error);
+    if (response && response.statusCode !== 200 && response.statusCode !== 404) {
+      self.log('error', 'Thalassa:Client.del unexpected response ' + response.statusCode);
+      error = new Error("del unexpected response " + response.statusCode);
+    }
+    if (typeof cb === 'function') cb(error);
+  });
+};
+
+/**
+ * Start polling, periodically checking the registrations into the Thalassa server
+ */
 
 Client.prototype.start = function() {
   var self = this;
@@ -79,6 +154,10 @@ Client.prototype.start = function() {
   }
 };
 
+/**
+ * Stop polling registrations
+ */
+
 Client.prototype.stop = function() {
   var self = this;
   self.isOn = false;
@@ -87,6 +166,28 @@ Client.prototype.stop = function() {
     self.seaport.free(reg);
   });
 };
+
+/**
+ * Close: stop polling, disconnect socket
+ */
+
+Client.prototype.close = function() {
+  var self = this;
+  this.stop();
+  if (this.socket) this.socket.close();
+};
+
+/**
+ * Find all `Registration`s over HTTP for `name` and `version` if provided.
+ *
+ * @param {String} [name]
+ * @param {String} [version]
+ * @param {getRegistrationsCallback} cb - Callback cb(error, registrations)
+ *
+ * @callback getRegistrationsCallback
+ * @param {Error} error
+ * @param {Registrations[]} registrations
+ */
 
 Client.prototype.getRegistrations = function(name, version, cb) {
   var self = this;
@@ -125,9 +226,74 @@ Client.prototype.getRegistrations = function(name, version, cb) {
   });
 };
 
+
+//
+// Axon socket functions
+//
+
+
+/**
+ * Subscribe to `offline` and `online` events over the axon socket. Connects if not
+ * already connected.
+ *
+ * @param {String} [name]
+ * @param {String} [version]
+ */
+
+ Client.prototype.subscribe = function(name, version) {
+  if (this.socket === null) this.socketConnect();
+  var prefix = this._keySearch(name, version);
+  this.log('debug', 'Thalassa:Client.subscribe ' + prefix);
+  this.socket.subscribe(prefix);
+};
+
+/**
+ * Unsubscribe to `offline` and `online` events over the axon socket. Connects if not
+ * already connected.
+ *
+ * @param {String} [name]
+ * @param {String} [version]
+ */
+
+Client.prototype.unsubscribe = function(name, version) {
+  if (this.socket === null) this.socketConnect();
+  var prefix = this._keySearch(name, version);
+  this.log('info', 'Thalassa:Client.unsubscribe ' + prefix);
+  this.socket.unsubscribe(prefix);
+};
+
+/**
+ * Connect to the Thalassa Server axon socket if not already connected, typically called
+ * the first time `subscribe` is called
+ */
+Client.prototype.socketConnect = function() {
+  var self = this;
+  if (this.socket === null) {
+    this.socket = axon.socket('sub');
+    this.socket.set('identity', this.MY_IP + ':' + this.PORT);
+    self.log('info', 'Thalassa:Client.socketConnect: connecting to socket ' + this.HOST + ':' + this.PORT);
+    this.socket.connect(this.PORT, this.HOST);
+
+    this.socket.on('message', function (regId, state, reg) {
+      regId = regId.toString();
+      state = state.toString();
+
+      if (state === 'online') {
+        self.emit('online', registrations.parse(reg.toString()));
+      }
+      else if (state === 'offline') {
+        self.emit('offline', regId);
+      }
+      else {
+        self.log('info', 'Thalassa:Client.onMessage: ignoring message, unknown state ', arguments.map(function (b) { b.toString(); }));
+      }
+    });
+  }
+};
+
 Client.prototype._keySearch = function(name, version) {
   var keySearch = (name) ? ('/' + name) : '';
-  keySearch += (version) ? util.format('/%s/', version) : '/'
+  keySearch += (version) ? util.format('/%s/*', version) : '/*';
   return keySearch;
 };
 
@@ -150,11 +316,12 @@ Client.prototype._sendUpdate = function (intent) {
   }
 };
 
-// TODO batch multiple requests?
 
 Client.prototype._sendHTTPUpdate = function (intent) {
+  // TODO batch multiple requests?
   var self = this;
   var uri = util.format('http://%s:%s/registrations/%s/%s/%s/%s', self.HOST, self.APIPORT, intent.name, intent.version, intent.host, intent.port);
+  var startTime = Date.now();
 
   //
   // If the last call is stil pending, don't add fuel to the fire
@@ -169,11 +336,26 @@ Client.prototype._sendHTTPUpdate = function (intent) {
   request({
     uri: uri,
     method: 'POST',
-    json: intent.meta
+    json: intent.meta,
+    timeout: self.TIMEOUT
   },
   function (error, response, body) {
     self.pending[intent.id] = false;
-    if (error) self.log('error', 'Thalassa:Client._sendUpdate', error);
-    //else self.log('debug', util.format('Thalassa:Client._sendUpdate (%s) %s', response.statusCode, uri));
+
+    // Check for an unsuccessful response, in case, for example we call the wrong
+    // host and it returns a 404, etc.
+    if (!error && response.statusCode !== 200) {
+      error = new Error(util.format('unexpected response statusCode %s from %s',
+                        response.statusCode, uri));
+    }
+
+    if (error) {
+      self.log('error', 'Thalassa:Client._sendUpdate', error);
+      self.emit('updateFailed', error);
+    }
+    else {
+      self.emit('updateSuccessful');
+      self.log('debug', util.format('Thalassa:Client._sendUpdate (%s) [%s] %s', response.statusCode, Date.now() - startTime, uri));
+    }
   });
 };
