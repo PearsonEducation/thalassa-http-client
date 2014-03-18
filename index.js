@@ -1,5 +1,4 @@
-var axon = require('axon')
-  , os = require('os')
+var os = require('os')
   , util = require('util')
   , ip = require('ip')
   , request = require('request')
@@ -7,16 +6,14 @@ var axon = require('axon')
   , EventEmitter = require('events').EventEmitter
   ;
 
-
 /**
  * `Client` constructor
  * @constructor
  *
- * @param {number} [opts.port=5001] - Port number of axon socket port
  * @param {number} [opts.apiport=9000] - Port number of Thalassa HTTP API
  * @param {String} [opts.host=127.0.0.1] - Thalassa host
  * @param {number} [opts.updateFreq=20000] - How often to check into registrations to Thalassa server
- * @param {number} [opts.updateTimeout=2500] - How long to wait for a registrion request to respond
+ * @param {number} [opts.updateTimeout=2500] - How long to wait for a registration request to respond
  * @param {String} [opts.mode=http]
  */
 
@@ -27,7 +24,6 @@ var Client = module.exports = function (opts) {
   EventEmitter.call(this);
 
   this.APIPORT        = opts.apiport || 9000;
-  this.PORT           = opts.port || 5001;
   this.HOST           = opts.host || '127.0.0.1';
   this.UPDATE_FREQ    = opts.updateFreq || 20000;
   this.TIMEOUT        = opts.updateTimeout || 2500;
@@ -37,10 +33,7 @@ var Client = module.exports = function (opts) {
 
   this.isOn = false;
   this.intents = [];
-  this.registrations = [];
   this.pending = {};
-
-  this.socket = null;
 };
 
 util.inherits(Client, EventEmitter);
@@ -162,19 +155,15 @@ Client.prototype.stop = function() {
   var self = this;
   self.isOn = false;
   clearInterval(self._updateInterval);
-  self.registrations.forEach(function (reg) {
-    self.seaport.free(reg);
-  });
 };
 
 /**
- * Close: stop polling, disconnect socket
+ * Close: stop polling
  */
 
 Client.prototype.close = function() {
   var self = this;
   this.stop();
-  if (this.socket) this.socket.close();
 };
 
 /**
@@ -226,77 +215,6 @@ Client.prototype.getRegistrations = function(name, version, cb) {
   });
 };
 
-
-//
-// Axon socket functions
-//
-
-
-/**
- * Subscribe to `offline` and `online` events over the axon socket. Connects if not
- * already connected.
- *
- * @param {String} [name]
- * @param {String} [version]
- */
-
- Client.prototype.subscribe = function(name, version) {
-  if (this.socket === null) this.socketConnect();
-  var prefix = this._keySearch(name, version);
-  this.log('debug', 'Thalassa:Client.subscribe ' + prefix);
-  this.socket.subscribe(prefix);
-};
-
-/**
- * Unsubscribe to `offline` and `online` events over the axon socket. Connects if not
- * already connected.
- *
- * @param {String} [name]
- * @param {String} [version]
- */
-
-Client.prototype.unsubscribe = function(name, version) {
-  if (this.socket === null) this.socketConnect();
-  var prefix = this._keySearch(name, version);
-  this.log('info', 'Thalassa:Client.unsubscribe ' + prefix);
-  this.socket.unsubscribe(prefix);
-};
-
-/**
- * Connect to the Thalassa Server axon socket if not already connected, typically called
- * the first time `subscribe` is called
- */
-Client.prototype.socketConnect = function() {
-  var self = this;
-  if (this.socket === null) {
-    this.socket = axon.socket('sub');
-    this.socket.set('identity', this.MY_IP + ':' + this.PORT);
-    self.log('info', 'Thalassa:Client.socketConnect: connecting to socket ' + this.HOST + ':' + this.PORT);
-    this.socket.connect(this.PORT, this.HOST);
-
-    this.socket.on('message', function (regId, state, reg) {
-      regId = regId.toString();
-      state = state.toString();
-
-      if (state === 'online') {
-        self.emit('online', registrations.parse(reg.toString()));
-      }
-      else if (state === 'offline') {
-        self.emit('offline', regId);
-      }
-      else {
-        self.log('info', 'Thalassa:Client.onMessage: ignoring message, unknown state ', arguments.map(function (b) { b.toString(); }));
-      }
-    });
-  }
-};
-
-Client.prototype._keySearch = function(name, version) {
-  var keySearch = (name) ? ('/' + name) : '';
-  keySearch += (version) ? util.format('/%s/*', version) : '/*';
-  return keySearch;
-};
-
 Client.prototype._startUpdateInterval = function() {
   var self = this;
   update();
@@ -324,7 +242,7 @@ Client.prototype._sendHTTPUpdate = function (intent) {
   var startTime = Date.now();
 
   //
-  // If the last call is stil pending, don't add fuel to the fire
+  // If the last call is still pending, don't add fuel to the fire
   //
   if (self.pending[intent.id]) {
     self.log('error', 'Thalassa:Client._sendHTTPUpdate last call still pending! (skipping): ' + intent.id);

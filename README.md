@@ -26,12 +26,11 @@ This registers the application named `my app` at version `1.0.0` that's on the c
     thalassa-client --help
       Options:
         --host           thalassa host                                                    [default: "127.0.0.1"]
-        --port           thalassa axon socket port                                        [default: 5001]
         --apiport        thalassa http api port                                           [default: 9000]
         --register       name@x.x.x:port,name@x.x.x:port                                  [required]
         --secsToExpire   default time in seconds for a thalassa registration to be valid  [default: 60]
         --updateFreq     time frequency in ms to ping the thalassa server                 [default: 20000]
-        --updateTimeout  time in ms to wait for a registrion request to respond           [default: 2500]
+        --updateTimeout  time in ms to wait for a registration request to respond           [default: 2500]
         --debug          enabled debug logging
 
 ## Client as an Embedded Module
@@ -41,7 +40,6 @@ Using the client from within a node.js application to register your service is s
     var Thalassa = require('thalassa');
 
     var client = new Thalassa.Client({
-      port: 4444,
       apiport: 4445,
       host: 'localhost'
     });
@@ -62,22 +60,6 @@ The client will periodically check in with the Thalassa server according to `opt
 
   client.on('updateSuccessful', function () {});
   client.on('updateFailed', function (error) {});
-
-### Subscriptions and `online` and `offline` Events
-
-If running as a module, you also have access to `subscribe` to `online` and `offline` events of certain applications. For example:
-
-    client.subscribe('myapp', '1.0.0');
-    client.on('online', function (registration) {});
-    client.on('offline', function (registration) {});
-
-Alternatively for all versions of `myapp`:
-
-    client.subscribe('myapp');
-
-Or every service registration:
-
-    client.subscribe();
 
 ### Querying Registrations
 

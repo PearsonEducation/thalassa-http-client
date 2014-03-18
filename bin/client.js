@@ -8,10 +8,6 @@ var util = require('util')
                 default : '127.0.0.1',
                 describe: 'thalassa host'
               },
-              port: {
-                default : 5001,
-                describe: 'thalassa axon socket port'
-              },
               apiport: {
                 default : 9000,
                 describe: 'thalassa http api port'
@@ -60,9 +56,6 @@ argv.register.split(',').forEach(function (nvp) {
   var version = parts[0];
   var port = parts[1];
   client.register(name, version, port);
-  // client.subscribe('thalassa-aqueduct')
-  // client.on('online', console.log.bind(console));
-  // client.on('offline', console.log.bind(console));
   log('info', util.format('registering %s@%s on port %s', name, version, port));
 })
 
