@@ -82,3 +82,7 @@ You can also pass metadata with any registration as a fourth parameter. This can
         }
     };
     client.register('myapp', '1.0.0', 8080, meta)
+
+# License
+
+Licensed under Apache 2.0. See [LICENSE](https://github.com/PearsonEducation/thalassa-http-clien/blob/master/LICENSE) file.
