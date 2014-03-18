@@ -1,6 +1,6 @@
 {
   "name": "thalassa-http-client",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A simple http client for Thalassa that doesn't require ZeroMQ",
   "main": "index.js",
   "scripts": {
