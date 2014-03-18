@@ -1,20 +1,31 @@
 #!/usr/bin/env node
 
 var util = require('util')
-  , Client = require('..')
-  , clc = require('cli-color')
+  , ThalassaClient = require('..')
   , optimist = require('optimist')
             .options({
               host: {
                 default : '127.0.0.1',
-                describe: 'host to bind to'
+                describe: 'thalassa host'
               },
-              port: {
-                default : 8080,
-                describe: 'port to bind to'
+              apiport: {
+                default : 9000,
+                describe: 'thalassa http api port'
               },
               register: {
                 describe: 'name@x.x.x:port,name@x.x.x:port'
+              },
+              secsToExpire: {
+                default : 60,
+                describe: 'default time in seconds for a thalassa registration to be valid'
+              },
+              updateFreq: {
+                default : 20000,
+                describe: 'time frequency in ms to ping the thalassa server'
+              },
+              updateTimeout: {
+                default : 2500,
+                describe: 'time in ms to wait for a registrion request to respond'
               },
               debug: {
                 boolean: true,
@@ -33,21 +44,9 @@ if (argv.h) {
   process.exit(0);
 }
 
-//
-// A simple logger
-//
-var filterLevel = (argv.debug == true) ? 'debug' : 'error'
-  , levelColors = { debug: clc.blue, info: clc.yellow, error: clc.red }
-  , levels = { debug: 0, info: 1, error: 2 }
-  , sep = ' - ';
-var log = argv.log = function (level, message, meta) {
-  if (levels[level] >= levels[filterLevel]) {
-    var optMeta = (meta) ? sep + JSON.stringify(meta) : '';
-    console.log((levelColors[level] || clc.white)(level) + sep +  message + optMeta);
-  }
-}
+var log = argv.log = require('../lib/defaultLogger')( (argv.debug == true) ? 'debug' : 'error' );
 
-var client = new Client(argv);
+var client = new ThalassaClient(argv);
 
 // TODO validate format of `register` option
 argv.register.split(',').forEach(function (nvp) {

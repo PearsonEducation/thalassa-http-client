@@ -6,30 +6,47 @@ var os = require('os')
   , EventEmitter = require('events').EventEmitter
   ;
 
+/**
+ * `Client` constructor
+ * @constructor
+ *
+ * @param {number} [opts.apiport=9000] - Port number of Thalassa HTTP API
+ * @param {String} [opts.host=127.0.0.1] - Thalassa host
+ * @param {number} [opts.updateFreq=20000] - How often to check into registrations to Thalassa server
+ * @param {number} [opts.updateTimeout=2500] - How long to wait for a registration request to respond
+ * @param {String} [opts.mode=http]
+ */
+
 var Client = module.exports = function (opts) {
   if (typeof opts !== 'object') opts = {};
-  EventEmitter.call(this);
-
   this.log = (typeof opts.log === 'function') ? opts.log : function (){};
 
-  this.APIPORT      = opts.apiport || 10000;
-  this.HOST         = opts.host || '127.0.0.1';
-  this.UPDATE_FREQ  = opts.updateFreq || 5000;
-  this.MODE         = opts.mode || 'http';
-  this.MY_IP        = ip.address();
+  EventEmitter.call(this);
+
+  this.APIPORT        = opts.apiport || 9000;
+  this.HOST           = opts.host || '127.0.0.1';
+  this.UPDATE_FREQ    = opts.updateFreq || 20000;
+  this.TIMEOUT        = opts.updateTimeout || 2500;
+  this.SEC_TO_EXPIRE  = opts.secsToExpire || 60;
+  this.MODE           = opts.mode || 'http';
+  this.MY_IP          = ip.address();
 
   this.isOn = false;
   this.intents = [];
-  this.registrations = [];
   this.pending = {};
-
 };
 
 util.inherits(Client, EventEmitter);
 
-//
-// 
-//
+/**
+ * Create a new registration
+ *
+ * @param {String} name - Name of the service (preferably require('./package.json').name)
+ * @param {String} version - Version of the service (preferably require('./package.json').version)
+ * @param {String} port - Port this registration is bound to that clients can call
+ * @param {Object} meta - Any additional meta data (key, value) to include
+ */
+
 Client.prototype.register = function(name, version, port, meta) {
   var self = this;
   var reg = {
@@ -40,7 +57,13 @@ Client.prototype.register = function(name, version, port, meta) {
     meta: meta || {}
   };
 
-  if (!reg.meta.hostname) reg.meta.hostname = reg.host;
+  if (!reg.meta.hostname) {
+    reg.meta.hostname = reg.host;
+  }
+
+  if (!reg.meta.secondsToExpire) {
+    reg.meta.secondsToExpire = this.SEC_TO_EXPIRE;
+  }
 
   reg.meta.hostname = os.hostname();
   reg.meta.pid = process.pid;
@@ -54,12 +77,21 @@ Client.prototype.register = function(name, version, port, meta) {
   }
 };
 
+/**
+ * Unregister a previously registered registration
+ *
+ * @param {String} name - Name of the service (preferably require('./package.json').name)
+ * @param {String} version - Version of the service (preferably require('./package.json').version)
+ * @param {String} port - Port this registration is bound to that clients can call
+ */
+
 Client.prototype.unregister = function(name, version, port) {
   var self = this;
+  var host = self.MY_IP;
   var reg = registrations.create({
     name: name,
     version: version,
-    host: self.MY_IP,
+    host: host,
     port: port,
   });
 
@@ -69,7 +101,43 @@ Client.prototype.unregister = function(name, version, port) {
   self.intents = self.intents.filter(function (intent) {
     return reg.id !== intent.id;
   });
+
+  //
+  // explicitely delete the registration so the offline notifications happen immediately
+  //
+  self.del(name, version, host, port);
 };
+
+
+/**
+ * Explicitly delete a registration
+ *
+ * @param {String} name - Name of the service
+ * @param {String} version - Version of the service
+ * @param {String} port - Port of the registration
+ * @param {String} host - Host (ip) of the registration
+ */
+Client.prototype.del = function (name, version, host, port, cb) {
+  var self = this;
+  var uri = util.format('http://%s:%s/registrations/%s/%s/%s/%s', self.HOST, self.APIPORT, name, version, host, port);
+  request({
+    uri: uri,
+    json: true,
+    method: 'DELETE'
+  },
+  function (error, response, body) {
+    if (error) self.log('error', 'Thalassa:Client.del', error);
+    if (response && response.statusCode !== 200 && response.statusCode !== 404) {
+      self.log('error', 'Thalassa:Client.del unexpected response ' + response.statusCode);
+      error = new Error("del unexpected response " + response.statusCode);
+    }
+    if (typeof cb === 'function') cb(error);
+  });
+};
+
+/**
+ * Start polling, periodically checking the registrations into the Thalassa server
+ */
 
 Client.prototype.start = function() {
   var self = this;
@@ -79,14 +147,36 @@ Client.prototype.start = function() {
   }
 };
 
+/**
+ * Stop polling registrations
+ */
+
 Client.prototype.stop = function() {
   var self = this;
   self.isOn = false;
   clearInterval(self._updateInterval);
-  self.registrations.forEach(function (reg) {
-    self.seaport.free(reg);
-  });
 };
+
+/**
+ * Close: stop polling
+ */
+
+Client.prototype.close = function() {
+  var self = this;
+  this.stop();
+};
+
+/**
+ * Find all `Registration`s over HTTP for `name` and `version` if provided.
+ *
+ * @param {String} [name]
+ * @param {String} [version]
+ * @param {getRegistrationsCallback} cb - Callback cb(error, registrations)
+ *
+ * @callback getRegistrationsCallback
+ * @param {Error} error
+ * @param {Registrations[]} registrations
+ */
 
 Client.prototype.getRegistrations = function(name, version, cb) {
   var self = this;
@@ -125,12 +215,6 @@ Client.prototype.getRegistrations = function(name, version, cb) {
   });
 };
 
-Client.prototype._keySearch = function(name, version) {
-  var keySearch = (name) ? ('/' + name) : '';
-  keySearch += (version) ? util.format('/%s/', version) : '/'
-  return keySearch;
-};
-
 Client.prototype._startUpdateInterval = function() {
   var self = this;
   update();
@@ -150,14 +234,15 @@ Client.prototype._sendUpdate = function (intent) {
   }
 };
 
-// TODO batch multiple requests?
 
 Client.prototype._sendHTTPUpdate = function (intent) {
+  // TODO batch multiple requests?
   var self = this;
   var uri = util.format('http://%s:%s/registrations/%s/%s/%s/%s', self.HOST, self.APIPORT, intent.name, intent.version, intent.host, intent.port);
+  var startTime = Date.now();
 
   //
-  // If the last call is stil pending, don't add fuel to the fire
+  // If the last call is still pending, don't add fuel to the fire
   //
   if (self.pending[intent.id]) {
     self.log('error', 'Thalassa:Client._sendHTTPUpdate last call still pending! (skipping): ' + intent.id);
@@ -169,11 +254,26 @@ Client.prototype._sendHTTPUpdate = function (intent) {
   request({
     uri: uri,
     method: 'POST',
-    json: intent.meta
+    json: intent.meta,
+    timeout: self.TIMEOUT
   },
   function (error, response, body) {
     self.pending[intent.id] = false;
-    if (error) self.log('error', 'Thalassa:Client._sendUpdate', error);
-    //else self.log('debug', util.format('Thalassa:Client._sendUpdate (%s) %s', response.statusCode, uri));
+
+    // Check for an unsuccessful response, in case, for example we call the wrong
+    // host and it returns a 404, etc.
+    if (!error && response.statusCode !== 200) {
+      error = new Error(util.format('unexpected response statusCode %s from %s',
+                        response.statusCode, uri));
+    }
+
+    if (error) {
+      self.log('error', 'Thalassa:Client._sendUpdate', error);
+      self.emit('updateFailed', error);
+    }
+    else {
+      self.emit('updateSuccessful');
+      self.log('debug', util.format('Thalassa:Client._sendUpdate (%s) [%s] %s', response.statusCode, Date.now() - startTime, uri));
+    }
   });
 };
