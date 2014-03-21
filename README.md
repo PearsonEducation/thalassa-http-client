@@ -3,13 +3,16 @@ Thalassa Client
 
 A lightweight client for [Thalassa](https://github.com/PearsonEducation/thalassa)
 
+# Installation
+
+    npm install thalassa-http-client
+
 # Running the Client
 
-The client can be run any of three ways.
+The client can be run either:
 
 1. From the command-line
 2. As a module
-3. Over HTTP
 
 ## Running Client from Command Line
 
@@ -35,11 +38,11 @@ This registers the application named `my app` at version `1.0.0` that's on the c
 
 ## Client as an Embedded Module
 
-Using the client from within a node.js application to register your service is simple. Pass options via the `opts` object like `new Thalassa.Client(opts)`:
+Using the client from within a node.js application to register your service is simple. Pass options via the `opts` object like `new ThalassaClient(opts)`:
 
-    var Thalassa = require('thalassa');
+    var ThalassaClient = require('thalassa-http-client');
 
-    var client = new Thalassa.Client({
+    var client = new ThalassaClient({
       apiport: 4445,
       host: 'localhost'
     });
@@ -52,7 +55,7 @@ Using the client from within a node.js application to register your service is s
     // stop reporting registrations to the server
     client.stop();
 
-`opts.log` may be passed just like the server.
+In addition `opts.log` may be optionally set to your own function to handle logging. `opts.log` expects this signature: `function log (level, message, object){}`. `level` will be one of `debug`, `info`, and `error`. `message` is a string and `object` is an optional object with key value pairs. If `opts.log` is not passed, the module will be quiet.
 
 ### `updateSuccessful` and `updateFailed` Events
 
