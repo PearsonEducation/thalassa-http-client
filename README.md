@@ -59,7 +59,7 @@ In addition `opts.log` may be optionally set to your own function to handle logg
 
 ### `updateSuccessful` and `updateFailed` Events
 
-The client will periodically check in with the Thalassa server according to `opts.updateFreq` (default 5000ms). Each registration will product a `updateSuccessful` or `updateFailed` event to be emitted.
+The client will periodically check in with the Thalassa server according to `opts.updateFreq` (default 20000ms). Each registration will product a `updateSuccessful` or `updateFailed` event to be emitted.
 
   client.on('updateSuccessful', function () {});
   client.on('updateFailed', function (error) {});
